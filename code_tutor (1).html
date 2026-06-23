@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code Tutor</title>
+<!--
+  ===========================================================================
+  CODE TUTOR  -  fully client-side. Just open this file in a browser.
+
+  1. Get a free key:  https://openrouter.ai/keys
+  2. Paste it into the API_KEY line in the script section below.
+  3. Save, then double-click this file to open it.
+
+  WARNING: because there is no server, the key sits in this file and ANYONE
+  who opens View Source / dev tools can read it. Use a throwaway free key,
+  and don't reuse it anywhere else.
+
+  If a request fails for any reason (network blocked, bad key, CORS, model
+  no longer free), the tutor replies "failed to connect".
+  ===========================================================================
+-->
+<style>
+  :root{
+    --ink:#1f2a44; --ink-soft:#5b6478; --line:#d7ddea;
+    --paper:#fbfcff; --grid:#eef1f8;
+    --debug:#b5651d; --debug-bg:#fdf3e7;
+    --solve:#1f7a52; --solve-bg:#eaf6ef;
+    --you:#eef1f8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:var(--ink); background:var(--paper);
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:24px 24px;
+    display:flex; flex-direction:column; height:100%;
+  }
+  code,pre,textarea.code{font-family:ui-monospace,Menlo,Consolas,"Courier New",monospace}
+
+  header{
+    padding:14px 20px; border-bottom:2px solid var(--ink);
+    background:var(--paper); display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  }
+  header h1{font-size:19px;margin:0;letter-spacing:-.01em}
+  header .sub{color:var(--ink-soft);font-size:13px}
+  .keybox{margin-left:auto; display:flex; align-items:center; gap:6px}
+  .keybox input{border:1px solid var(--line); border-radius:7px; padding:6px 9px;
+        font-size:13px; width:200px; font-family:inherit}
+  .keybox input:focus{outline:2px solid var(--ink)}
+  .keybox button{border:none; background:var(--ink); color:#fff; font-size:13px;
+        font-weight:600; border-radius:7px; padding:7px 12px; cursor:pointer}
+  .keystate{font-size:12px; color:#a3201b}
+  .keystate.ok{color:var(--solve)}
+  @media (max-width:760px){.keybox{flex-basis:100%; margin-left:0; margin-top:8px}
+        .keybox input{flex:1; width:auto}}
+
+  main{flex:1; display:grid; grid-template-columns:minmax(280px,40%) 1fr; min-height:0}
+  @media (max-width:760px){main{grid-template-columns:1fr; grid-template-rows:auto 1fr}}
+
+  .left{border-right:1px solid var(--line); padding:16px; display:flex;
+        flex-direction:column; gap:10px; min-height:0; background:var(--paper)}
+  .left label{font-size:12px;font-weight:600;color:var(--ink-soft);
+              text-transform:uppercase;letter-spacing:.05em}
+  textarea.code{flex:1; resize:none; border:1px solid var(--line); border-radius:8px;
+        padding:12px; font-size:13px; line-height:1.5; color:var(--ink);
+        background:#fff; min-height:160px}
+  textarea.code:focus{outline:2px solid var(--ink); outline-offset:0}
+
+  .right{display:flex; flex-direction:column; min-height:0}
+  #log{flex:1; overflow:auto; padding:18px; display:flex; flex-direction:column; gap:14px}
+  .empty{color:var(--ink-soft); font-size:14px; max-width:46ch; line-height:1.55}
+
+  .msg{max-width:90%; font-size:14px; line-height:1.55}
+  .msg.you{align-self:flex-end; background:var(--you); border:1px solid var(--line);
+           border-radius:10px 10px 2px 10px; padding:9px 13px}
+  .msg.tutor{align-self:flex-start; border-left:3px solid var(--line); padding:2px 0 2px 13px}
+  .msg.tutor.debug{border-left-color:var(--debug)}
+  .msg.tutor.solve{border-left-color:var(--solve)}
+  .msg .who{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+            color:var(--ink-soft); margin-bottom:4px}
+  .msg pre{background:#f4f6fb; border:1px solid var(--line); border-radius:8px;
+           padding:10px 12px; overflow:auto; font-size:12.5px; line-height:1.5; margin:8px 0}
+  .msg :not(pre) > code{background:#f4f6fb; padding:1px 5px; border-radius:4px; font-size:.9em}
+  .msg.fail .who{color:#a3201b}
+  .msg.fail{border-left-color:#a3201b; color:#a3201b}
+  .msg .reason{display:block; margin-top:4px; font-size:11.5px; color:var(--ink-soft)}
+
+  .composer{border-top:1px solid var(--line); padding:12px 16px; background:var(--paper)}
+  .modes{display:flex; gap:8px; margin-bottom:10px}
+  .mode{flex:1; border:1px solid var(--line); background:#fff; border-radius:8px;
+        padding:8px 10px; cursor:pointer; text-align:left; color:var(--ink)}
+  .mode b{display:block;font-size:13px}
+  .mode span{font-size:11.5px;color:var(--ink-soft)}
+  .mode[aria-pressed="true"]{border-width:2px}
+  .mode.debug[aria-pressed="true"]{border-color:var(--debug); background:var(--debug-bg)}
+  .mode.solve[aria-pressed="true"]{border-color:var(--solve); background:var(--solve-bg)}
+  .ask{display:flex; gap:8px; align-items:flex-end}
+  .ask textarea{flex:1; resize:none; border:1px solid var(--line); border-radius:8px;
+        padding:10px 12px; font-size:14px; line-height:1.4; font-family:inherit; min-height:44px}
+  .ask textarea:focus{outline:2px solid var(--ink)}
+  .ask button{border:none; background:var(--ink); color:#fff; font-size:14px; font-weight:600;
+        border-radius:8px; padding:0 18px; height:44px; cursor:pointer}
+  .ask button:disabled{opacity:.5; cursor:default}
+  .hint{font-size:11.5px; color:var(--ink-soft); margin-top:6px}
+  .diag{margin:8px 0 0; max-height:96px; overflow:auto; background:#0f1626; color:#cfe3ff;
+        font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; line-height:1.45;
+        padding:8px 10px; border-radius:7px; white-space:pre-wrap; word-break:break-word}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Code Tutor</h1>
+    <span class="sub">paste your code, then ask</span>
+    <div class="keybox">
+      <input id="key" type="password" placeholder="OpenRouter API key" autocomplete="off" spellcheck="false">
+      <button id="savekey">Save</button>
+      <button id="testbtn">Test</button>
+      <span id="keystate" class="keystate">no key</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="left">
+      <label for="code">Your code</label>
+      <textarea id="code" class="code" placeholder="Paste the code you're working on here..." spellcheck="false"></textarea>
+    </section>
+
+    <section class="right">
+      <div id="log">
+        <div class="empty">
+          Paste your code on the left, choose what you want help with, type your
+          question below, and press <b>Ask</b>.<br><br>
+          <b>Find my mistake</b> nudges you toward the bug without handing over the
+          full answer. <b>Explain a solution</b> walks you through a worked answer.
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="modes" role="group" aria-label="Help mode">
+          <button class="mode debug" data-mode="debug" aria-pressed="true">
+            <b>Find my mistake</b><span>hints &amp; concepts, not the full answer</span>
+          </button>
+          <button class="mode solve" data-mode="solve" aria-pressed="false">
+            <b>Explain a solution</b><span>a worked answer to learn from</span>
+          </button>
+        </div>
+        <div class="ask">
+          <textarea id="q" rows="1" placeholder="What do you want help with?"></textarea>
+          <button id="send">Ask</button>
+        </div>
+        <div class="hint">Enter to send &middot; Shift+Enter for a new line</div>
+        <pre id="diag" class="diag">diagnostics: idle</pre>
+      </div>
+    </section>
+  </main>
+
+<script>
+  // ===== CONFIG =============================================================
+  // You normally DON'T need to touch the key here -- enter it in the box at the
+  // top-right of the page and press Save (it's remembered in your browser).
+  // This line is only an optional fallback default if you'd rather hard-code it.
+  var API_KEY = "PASTE-YOUR-OPENROUTER-KEY-HERE";
+
+  // Free, coding-capable model. If this stops being free it will fail to
+  // connect; pick a current one from https://openrouter.ai/models?max_price=0
+  var MODEL = "cohere/north-mini-code:free";
+
+  var BASE = "You are a patient, encouraging programming tutor for students who "
+    + "are still learning. Respond in the same language the student writes in. "
+    + "Be concise and clear. Use fenced code blocks for any code. Assume the "
+    + "student wants to understand, not just copy. Never be condescending.";
+
+  var PERSONA = {
+    debug: BASE + "\n\nThe student wants to know WHERE THEY WENT WRONG. Help them "
+      + "find and understand the mistake themselves; do NOT rewrite their whole "
+      + "program. Pinpoint where the problem is, name what kind of problem it is, "
+      + "explain the concept in plain language, and give a focused hint or tiny "
+      + "example rather than a full corrected solution. If there are several "
+      + "issues, start with the most important. You may show one corrected line "
+      + "to make a point, but never post their whole fixed program in this mode.",
+    solve: BASE + "\n\nThe student wants a WORKED SOLUTION to learn from. (1) Briefly "
+      + "explain your approach, (2) show clean correct code, (3) walk through why "
+      + "it works step by step. Point out the key concept and a common pitfall."
+  };
+  // ==========================================================================
+
+  var history = [];
+  var mode = "debug";
+  var log = document.getElementById("log");
+  var q = document.getElementById("q");
+  var send = document.getElementById("send");
+  var codeEl = document.getElementById("code");
+  var keyEl = document.getElementById("key");
+  var saveKeyBtn = document.getElementById("savekey");
+  var keyState = document.getElementById("keystate");
+  var testBtn = document.getElementById("testbtn");
+  var diagEl = document.getElementById("diag");
+
+  function diag(msg){
+    var t = new Date().toLocaleTimeString();
+    diagEl.textContent = "[" + t + "] " + msg + "\n" + diagEl.textContent;
+  }
+
+  // The key is entered in the page (not stored in this file). It is remembered
+  // in this browser via localStorage so you don't retype it each visit.
+  function loadKey(){
+    var saved = "";
+    try { saved = localStorage.getItem("or_key") || ""; } catch(e){}
+    if (!saved && API_KEY && API_KEY.indexOf("PASTE-") !== 0) saved = API_KEY;
+    keyEl.value = saved;
+    markKey(saved);
+  }
+  function getKey(){ return keyEl.value.trim(); }
+  function markKey(k){
+    if (k){ keyState.textContent = "key set"; keyState.className = "keystate ok"; }
+    else  { keyState.textContent = "no key";  keyState.className = "keystate"; }
+  }
+  saveKeyBtn.addEventListener("click", function(){
+    var k = getKey();
+    try { localStorage.setItem("or_key", k); } catch(e){}
+    markKey(k);
+    saveKeyBtn.textContent = "Saved";
+    setTimeout(function(){ saveKeyBtn.textContent = "Save"; }, 1200);
+  });
+  keyEl.addEventListener("input", function(){ markKey(getKey()); });
+  loadKey();
+
+  // Raw connection test -- prints the actual result to the diagnostics panel,
+  // so you don't need the browser console (which may be blocked).
+  testBtn.addEventListener("click", function(){
+    var key = getKey();
+    if (!key){ diag("TEST: no key entered."); return; }
+    diag("TEST: sending a short request to " + MODEL + " ...");
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, 30000);
+    fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method:"POST", signal:ctrl.signal,
+      headers:{"Authorization":"Bearer "+key,"Content-Type":"application/json"},
+      body: JSON.stringify({model:MODEL, max_tokens:60, messages:[{role:"user",content:"Reply with exactly: connection works"}]})
+    })
+    .then(function(r){ return r.text().then(function(t){
+        clearTimeout(timer);
+        diag("TEST: HTTP " + r.status + " " + (r.ok ? "OK" : "ERROR"));
+        if (r.ok){
+          try {
+            var m = JSON.parse(t).choices[0].message;
+            diag("TEST reply: " + ((m.content || m.reasoning || "(empty)").trim()));
+          } catch(e){ diag("TEST body: " + t.slice(0,400)); }
+        } else {
+          diag("TEST body: " + t.slice(0,400));
+        }
+      }); })
+    .catch(function(e){
+      clearTimeout(timer);
+      diag("TEST: request did NOT complete -> " + e.name + ": " + e.message);
+      diag("TEST: this usually means the network is blocking openrouter.ai, or CORS was refused.");
+    });
+  });
+
+  document.querySelectorAll(".mode").forEach(function(b){
+    b.addEventListener("click", function(){
+      mode = b.dataset.mode;
+      document.querySelectorAll(".mode").forEach(function(x){
+        x.setAttribute("aria-pressed", x === b ? "true" : "false");
+      });
+    });
+  });
+
+  function esc(s){return s.replace(/[&<>]/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
+
+  function render(text){
+    var parts = text.split("```"); var out = "";
+    for (var i=0;i<parts.length;i++){
+      if (i % 2 === 1){
+        out += "<pre>"+esc(parts[i].replace(/^[a-zA-Z0-9]*\n/, ""))+"</pre>";
+      } else {
+        out += esc(parts[i])
+          .replace(/`([^`]+)`/g,"<code>$1</code>")
+          .replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>")
+          .replace(/\n/g,"<br>");
+      }
+    }
+    return out;
+  }
+
+  function clearEmpty(){var e=log.querySelector(".empty"); if(e) e.remove();}
+
+  function addMsg(role, text, reason){
+    clearEmpty();
+    var d = document.createElement("div");
+    if (role === "you"){
+      d.className = "msg you"; d.innerHTML = esc(text).replace(/\n/g,"<br>");
+    } else if (role === "fail"){
+      d.className = "msg tutor fail";
+      d.innerHTML = '<div class="who">Tutor</div>' + esc(text)
+        + (reason ? '<span class="reason">'+esc(reason)+'</span>' : '');
+    } else {
+      d.className = "msg tutor " + mode;
+      d.innerHTML = '<div class="who">Tutor</div>' + render(text);
+    }
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+    return d;
+  }
+
+  function ask(){
+    var question = q.value.trim();
+    if (!question){
+      diag("ASK: nothing sent -- type your question in the message box at the bottom (not the code box), then press Ask.");
+      q.focus();
+      return;
+    }
+
+    var key = getKey();
+    if (!key){
+      addMsg("you", question);
+      addMsg("fail", "failed to connect", "Enter your OpenRouter API key in the box at the top right, then press Save.");
+      keyEl.focus();
+      q.value=""; autosize(); return;
+    }
+
+    addMsg("you", question);
+    history.push({role:"user", content: question});
+    q.value = ""; autosize();
+    send.disabled = true;
+    var thinking = addMsg("tutor", "_thinking..._");
+
+    var system = PERSONA[mode];
+    if (codeEl.value.trim()){
+      system += "\n\nThe student's current code is:\n```\n" + codeEl.value + "\n```";
+    }
+    var messages = [{role:"system", content:system}].concat(history);
+
+    diag("ASK: sending to " + MODEL + " (" + mode + ") ...");
+
+    // abort if it hangs (e.g. silently blocked by the school network)
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, 30000);
+
+    fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method:"POST",
+      signal: ctrl.signal,
+      headers:{
+        "Authorization":"Bearer " + key,
+        "Content-Type":"application/json"
+      },
+      body: JSON.stringify({model: MODEL, messages: messages})
+    })
+    .then(function(r){
+      return r.text().then(function(t){ return {ok:r.ok, status:r.status, text:t}; });
+    })
+    .then(function(res){
+      clearTimeout(timer);
+      thinking.remove();
+      diag("ASK: HTTP " + res.status + (res.ok ? " OK" : " ERROR"));
+      if (!res.ok){
+        diag("ASK body: " + res.text.slice(0,400));
+        addMsg("fail", "failed to connect", "Server responded " + res.status + ". "
+          + "Likely a bad key, or the model name is wrong / no longer free.");
+        return;
+      }
+      var data = JSON.parse(res.text);
+      var m = data && data.choices && data.choices[0] && data.choices[0].message;
+      var reply = m && (m.content || m.reasoning);
+      if (reply) reply = reply.trim();
+      if (!reply){
+        diag("ASK: unexpected shape: " + res.text.slice(0,400));
+        addMsg("fail", "failed to connect", "Unexpected response shape (see diagnostics).");
+        return;
+      }
+      addMsg("tutor", reply);
+      history.push({role:"assistant", content:reply});
+    })
+    .catch(function(e){
+      clearTimeout(timer);
+      if (thinking) thinking.remove();
+      diag("ASK: request did NOT complete -> " + e.name + ": " + e.message);
+      var why = (e.name === "AbortError")
+        ? "Request timed out \u2013 the network may be blocking openrouter.ai."
+        : "Could not reach openrouter.ai (network blocked or CORS). " + e.message;
+      addMsg("fail", "failed to connect", why);
+    })
+    .finally(function(){ send.disabled = false; q.focus(); });
+  }
+
+  send.addEventListener("click", ask);
+  q.addEventListener("keydown", function(e){
+    if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); ask(); }
+  });
+
+  function autosize(){ q.style.height="44px"; q.style.height=Math.min(q.scrollHeight,140)+"px"; }
+  q.addEventListener("input", autosize);
+</script>
+</body>
+</html>
